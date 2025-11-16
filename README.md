@@ -7,7 +7,7 @@ This repository is a modified version of the original project **[control_your_ro
 
 - **Original project copyright**: Copyright [Tian Nian (粘天)](https://github.com/Tian-Nian)
 - **Modifications copyright**: Copyright 2025 [WenTian Chen](https://github.com/bluejade115)
-- 
+  
 # WECHAT
 <p align="center">
   <img src="imgs/Wechat.jpg" alt="wechat_group" width="400">
