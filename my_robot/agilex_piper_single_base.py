@@ -54,26 +54,30 @@ class PiperSingle(Robot):
                 "left_arm": PiperController("left_arm"),
             },
         }
-        self.sensors = {
-            "image":{
-                "cam_head": RealsenseSensor("cam_head"),
-                "cam_wrist": RealsenseSensor("cam_wrist"),
-            },
-        }
-
+        # self.sensors = {
+        #     "image":{
+        #         "cam_head": RealsenseSensor("cam_head"),
+        #         "cam_wrist": RealsenseSensor("cam_wrist"),
+        #     },
+        # }
+    def set_can_name(self,can_name:str = "slave"):
+        print("Test:Setting can name to:",can_name)
+        self.can_name = can_name
     # ============== init ==============
     def reset(self):
         self.controllers["arm"]["left_arm"].reset(np.array(START_POSITION_ANGLE_LEFT_ARM))
 
-    def set_up(self,can_name: str="can0"):
+    def set_up(self):
         super().set_up()
-
+        # can_name = self.can_name
+        can_name = "can0"
+        print("Test:Slave can name:",can_name)
         self.controllers["arm"]["left_arm"].set_up(can_name)
-        self.sensors["image"]["cam_head"].set_up(CAMERA_SERIALS["head"])
-        self.sensors["image"]["cam_wrist"].set_up(CAMERA_SERIALS["wrist"])
+        # self.sensors["image"]["cam_head"].set_up(CAMERA_SERIALS["head"])
+        # self.sensors["image"]["cam_wrist"].set_up(CAMERA_SERIALS["wrist"])
 
         self.set_collect_type({"arm": ["joint","qpos","gripper"],
-                               "image": ["color"]
+                            #    "image": ["color"]
                                })
         
         print("set up success!")

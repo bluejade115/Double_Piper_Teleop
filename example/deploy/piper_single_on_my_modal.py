@@ -10,7 +10,16 @@ from policy.ACT.inference_model import MYACT
 from utils.data_handler import is_enter_pressed
 import time
 import pdb
-
+#
+# {
+# 'arm': {'left_arm': { 
+#                       'joint': [0.0, 0.85220935, -0.68542569, 0.0, 0.78588684, -0.05256932], 
+#                       'qpos': 0.0},
+#                       'gripper': 0.0}
+#                     },
+# 'image': {'cam_head': {'color': array, 'depth': array}, 'cam_wrist': {'color': array, 'depth': array}}
+# }
+# 
 def input_transform(data):
     has_left_arm = "left_arm" in data[0]
     has_right_arm = "right_arm" in data[0]

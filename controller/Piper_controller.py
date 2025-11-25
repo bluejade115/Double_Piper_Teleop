@@ -25,6 +25,14 @@ class PiperController(ArmController):
         piper.EnableArm(7)
         enable_fun(piper=piper)
         self.controller = piper
+    def set_master_mode(self,can:str="can0"):
+        piper = C_PiperInterface_V2(can)
+        piper.ConnectPort()
+        piper.MasterSlaveConfig(0xFA, 0, 0, 0)
+        piper.EnableArm(7)
+        enable_fun(piper=piper)
+        print("Master mode set up complete.")
+        self.controller = piper
 
     def reset(self, start_state):
         try:

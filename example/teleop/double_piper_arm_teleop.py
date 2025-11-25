@@ -20,9 +20,9 @@ import tyro
 from dataclasses import dataclass, field
 @dataclass
 class DoublePiperTeleopConfig:
-    master_can: str = 'can0'
+    master_can: str = 'piper_master'
     
-    slave_can: str = 'can1'
+    slave_can: str = 'piper_slave'
     
     num_episode: int = 10
     
@@ -37,7 +37,7 @@ condition = {
 
 
 class MasterWorker(Worker):
-    def __init__(self, config: DoublePiperTeleopConfig, process_name: str, start_event, end_event):
+    def __init__(self, process_name: str, start_event, end_event,config:DoublePiperTeleopConfig):
         super().__init__(process_name, start_event, end_event)
         self.manager = Manager()
         self.data_buffer = self.manager.dict()
@@ -54,6 +54,7 @@ class MasterWorker(Worker):
         #     self.zero_gravity_flag.value = False
         #     self.start_gravity = True  # 零重力调用后开启重力补偿        
         data = self.component.get()
+        print("Test:Data",data)
         # data = self.action_transform(data)
         
         # if self.start_gravity :
@@ -74,7 +75,8 @@ class MasterWorker(Worker):
         can_name = self.config.master_can
         
         self.component = PiperController(name="arm")
-        self.component.set_up(can=can_name)
+        # self.component.set_up(can=can_name)
+        self.component.set_master_mode(can=can_name)
         self.component.set_collect_info(["joint","gripper"])
         # self.component.apply_calibration()
 
@@ -121,7 +123,7 @@ class MasterWorker(Worker):
         #     self.component.controller.estop(i)        
         return super().finish()
 class SlaveWorker(Worker):
-    def __init__(self, config:DoublePiperTeleopConfig, process_name: str, start_event, end_event, move_data_buffer: Manager):
+    def __init__(self,process_name: str, start_event, end_event, move_data_buffer: Manager, config:DoublePiperTeleopConfig):
         super().__init__(process_name, start_event, end_event)
         self.move_data_buffer = move_data_buffer
         self.manager = Manager()
@@ -155,7 +157,8 @@ class SlaveWorker(Worker):
     def component_init(self):
         self.component = PiperSingle()
         can_name = self.config.slave_can
-        self.component.set_up(can=can_name)
+        self.component.set_can_name(can_name)
+        self.component.set_up()
 
         self.component.reset()  
 
@@ -171,6 +174,7 @@ class DataWorker(Worker):
     
     def handler(self):
         data = dict(self.collect_data_buffer)
+        print("Collect Data:",data)
         self.collection.collect(data["controller"], data["sensor"])
     
     def finish(self):
@@ -200,7 +204,7 @@ if __name__ == "__main__":
         master.start()
         slave.start()
         data.start()
-
+        print("finished initialization")
         while not is_start:
             time.sleep(0.01)
             if is_enter_pressed():
