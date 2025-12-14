@@ -5,3 +5,8 @@ pyrealsense2
 opencv-python
 keyboard
 pyyaml
+matplotlib
+click
+pandas>=1.2 
+requests>=2.23.0 
+psutil 
