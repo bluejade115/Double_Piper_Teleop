@@ -12,7 +12,7 @@ from data.collect_any import CollectAny
 
 CAMERA_SERIALS = {
     'head': '023422071967',  # Replace with actual serial number
-    'wrist': '111',   # Replace with actual serial number
+    'wrist': '152122077595',   # Replace with actual serial number
 }
 
 # Define start position (in degrees)
@@ -38,7 +38,7 @@ START_POSITION_ANGLE_RIGHT_ARM = [
 condition = {
     "robot":"piper_single",
     "save_path": "./datasets/", 
-    "task_name": "test", 
+    "task_name": "pick_banana", 
     "save_format": "hdf5", 
     "save_freq": 10, 
 }
@@ -57,7 +57,7 @@ class PiperSingle(Robot):
         self.sensors = {
             "image":{
                 "cam_head": RealsenseSensor("cam_head"),
-                # "cam_wrist": RealsenseSensor("cam_wrist"),
+                "cam_wrist": RealsenseSensor("cam_wrist"),
             },
         }
     def set_can_name(self,can_name:str = "slave"):
@@ -74,7 +74,7 @@ class PiperSingle(Robot):
         print("Test:Slave can name:",can_name)
         self.controllers["arm"]["left_arm"].set_up(can_name)
         self.sensors["image"]["cam_head"].set_up(CAMERA_SERIALS["head"])
-        # self.sensors["image"]["cam_wrist"].set_up(CAMERA_SERIALS["wrist"])
+        self.sensors["image"]["cam_wrist"].set_up(CAMERA_SERIALS["wrist"])
 
         self.set_collect_type({"arm": ["joint","qpos","gripper"],
                                "image": ["color"]
