@@ -80,8 +80,9 @@ def output_transform(action):
 
 def main():
     # 1. Configuration
-    CKPT_PATH = "path/to/your/smolvla/checkpoint" # TODO: Update this
-    DATASET_REPO_ID = "miku112/piper_pick_place_banana" # TODO: Ensure this matches your training dataset for correct normalization
+    CKPT_PATH = "/home/charles/workspaces/lerobot/weights/train/my_smolvla/checkpoints/015000/pretrained_model" # TODO: Update this
+    DATASET_REPO_ID = "miku112/piper-pick-place-banana-v2" # TODO: Ensure this matches your training dataset for correct normalization
+    DATASET_ROOT = "/home/charles/workspaces/lerobot/datasets/miku112/piper-pick-place-banana-v2"
     TASK_INSTRUCTION = "pick up the banana and put it into the container" # TODO: Update this
     
     # 2. Initialize Robot
@@ -93,7 +94,7 @@ def main():
     # 3. Initialize Model
     print(f"Loading Model from {CKPT_PATH}...")
     try:
-        model = SMOLVLA(model_path=CKPT_PATH, dataset_repo_id=DATASET_REPO_ID)
+        model = SMOLVLA(model_path=CKPT_PATH, dataset_repo_id=DATASET_REPO_ID, dataset_root=DATASET_ROOT)
         model.random_set_language(TASK_INSTRUCTION)
     except Exception as e:
         print(f"Error loading model: {e}")
@@ -141,6 +142,7 @@ def main():
                 
             # Execute
             move_data = output_transform(action)
+            
             robot.move(move_data)
             
             step += 1
@@ -150,8 +152,8 @@ def main():
             # target_dt = 1.0 / robot.condition["save_freq"] # e.g. 1/30
             # if elapsed < target_dt:
             #     time.sleep(target_dt - elapsed)
-            
-            print(f"Step {step}: Action Executed")
+            print(f"Step {step}: action {action} Executed")
+            print(f"Step {step}: move_data {move_data} Executed")
 
         print(f"Episode {i+1} Finished.")
         robot.reset()

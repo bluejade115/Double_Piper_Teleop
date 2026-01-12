@@ -13,15 +13,15 @@ from lerobot.utils.utils import init_logging
 # 1. 配置参数
 # ---------------------------------------------------------
 # 你的模型 Checkpoint 路径 (例如: "outputs/train/smolvla_test/checkpoints/last")
-PRETRAINED_POLICY_PATH = "lerobot/outputs/train/my_smolvla/checkpoints/015000/pretrained_model" 
+PRETRAINED_POLICY_PATH = "../lerobot/weights/train/my_smolvla/checkpoints/015000/pretrained_model" 
 # 你的数据集 ID (namespace/repo_name)
-DATASET_REPO_ID = "miku112/piper_pick_place_banana" 
+DATASET_REPO_ID = "miku112/piper-pick-place-banana-v2" 
 # 你的数据集本地路径
-DATASET_ROOT = "lerobot/datasets/miku112/piper_pick_place_banana"
+DATASET_ROOT = "../lerobot/datasets/miku112/piper-pick-place-banana-v2"
 # 评估样本数量 (可视化前 N 个样本)
-NUM_SAMPLES_TO_PLOT = 10 
+NUM_SAMPLES_TO_PLOT = 100
 # 可视化结果保存路径
-SAVE_DIR = "lerobot/outputs/eval_results"
+SAVE_DIR = "../lerobot/outputs/eval_results"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 def evaluate():

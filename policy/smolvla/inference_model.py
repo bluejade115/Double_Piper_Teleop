@@ -14,7 +14,7 @@ except ImportError:
     print("WARNING: LeRobot not installed. Defaulting to raw transformers (normalization may be incorrect).")
 
 class SMOLVLA:
-    def __init__(self, model_path, dataset_repo_id=None, device=None):
+    def __init__(self, model_path, dataset_repo_id=None, dataset_root=None, device=None):
         self.device = device if device else ("cuda" if torch.cuda.is_available() else "cpu")
         self.model_path = model_path
         self.use_lerobot = LEROBOT_AVAILABLE and (dataset_repo_id is not None)
@@ -29,7 +29,7 @@ class SMOLVLA:
             # Load Metadata (required for normalization stats)
             print(f"Loading dataset metadata from {dataset_repo_id}...")
             # Ideally avoid full download, LeRobotDataset usually handles this gracefully or checks cache
-            self.dataset = LeRobotDataset(repo_id=dataset_repo_id)
+            self.dataset = LeRobotDataset(repo_id=dataset_repo_id, root=dataset_root)
             ds_meta = self.dataset.meta
 
             # Make Policy
@@ -71,12 +71,11 @@ class SMOLVLA:
             if isinstance(observation_input, (list, tuple)) and state is not None:
                 # Convert list of images to what LeRobot typically expects
                 # WARNING: Key names must match what the policy was trained with!
-                # Assuming "img_head" -> "observation.images.cam_head"
-                # Assuming "img_wrist" -> "observation.images.cam_wrist"
-                # This depends on the specific dataset linkage.
+                # Assuming "img_head" -> "observation.images.image" (Standard LeRobot Main Cam)
+                # Assuming "img_wrist" -> "observation.images.wrist_image"
                 self.observation = {
-                    "observation.images.cam_head": observation_input[0],
-                    "observation.images.cam_wrist": observation_input[1],
+                    "observation.images.image": observation_input[0],
+                    "observation.images.wrist_image": observation_input[1],
                     "observation.state": state
                 }
             elif isinstance(observation_input, dict):
@@ -101,6 +100,11 @@ class SMOLVLA:
                 if isinstance(v, np.ndarray):
                     # Check dim. LeRobot expects [B, C, H, W] for images usually? 
                     # preprocessor handles formatting.
+                    
+                    # Fix for negative strides (e.g. from camera rotation/slicing)
+                    if v.strides is not None and any(s < 0 for s in v.strides):
+                         v = v.copy()
+                         
                     val = torch.from_numpy(v).to(self.device).float() # Ensure float for input
                     
                     if val.ndim > 0:
