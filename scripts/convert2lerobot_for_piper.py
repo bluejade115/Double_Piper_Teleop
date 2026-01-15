@@ -147,7 +147,7 @@ if __name__== '__main__':
         inst_path = None
     lerobot = MyLerobotDataset(repo_id, "piper", 10 ,features, feature_map, inst_path)
 
-    MAX_NUMBER = 51
+    MAX_NUMBER = 50
     counter = 0
     for hdf5_path in hdf5_paths:
         counter += 1
