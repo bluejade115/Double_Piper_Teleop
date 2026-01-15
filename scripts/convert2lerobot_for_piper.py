@@ -139,7 +139,7 @@ if __name__== '__main__':
     hdf5_paths = get_files(data_path, "*.hdf5")
     
     if not multi:
-        config_path = os.path.join(os.path.dirname(hdf5_path), "config.json")
+        config_path = os.path.join(data_path, "config.json")
         with open(config_path, 'r') as f:
             data_config = json.load(f)
         inst_path = f"./task_instructions/{data_config['task_name']}.json"
@@ -147,11 +147,17 @@ if __name__== '__main__':
         inst_path = None
     lerobot = MyLerobotDataset(repo_id, "piper", 10 ,features, feature_map, inst_path)
 
+    MAX_NUMBER = 51
+    counter = 0
     for hdf5_path in hdf5_paths:
+        counter += 1
+        if counter > MAX_NUMBER:
+            break
+        print(f"Converting {hdf5_path} ......")
         data = hdf5_groups_to_dict(hdf5_path)
         if multi:
             # for every episode, reset instruction
-            config_path = os.path.join(os.path.dirname(hdf5_path), "config.json")
+            config_path = os.path.join(data_path, "config.json")
             with open(config_path, 'r') as f:
                 data_config = json.load(f)
             inst_path = f"./task_instructions/{data_config['task_name']}.json"
