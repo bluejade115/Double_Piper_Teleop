@@ -196,15 +196,15 @@ def replay_file(hdf5_path, can_name="piper_slave", rate=30.0, compare=False, sav
                 joint_frame = np.asarray(joints[i]).astype(float).flatten()
                 grip_val = float(np.asarray(grippers[i]).squeeze())
 
-                # 安全限制：每个 joint 绝对值不得超过 0.1
-                clipped = np.clip(joint_frame, -0.1, 0.1)
-                if not np.allclose(clipped, joint_frame):
-                    print(f"[WARN] frame {i}: joint values clipped to ±0.1")
-                joint_frame = clipped
+                # # 安全限制：每个 joint 绝对值不得超过 0.1
+                # clipped = np.clip(joint_frame, -0.1, 0.1)
+                # if not np.allclose(clipped, joint_frame):
+                #     print(f"[WARN] frame {i}: joint values clipped to ±0.1")
+                # joint_frame = clipped
 
                 move = {"joint": [float(x) for x in joint_frame], "gripper": float(grip_val)}
                 # 发动作（如需实际执行则取消下一行注释）
-                # p.move({"arm": {"left_arm": move}})
+                p.move({"arm": {"left_arm": move}})
 
                 if compare:
                     try:
