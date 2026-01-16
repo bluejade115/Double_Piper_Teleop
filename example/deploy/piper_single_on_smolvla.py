@@ -81,12 +81,12 @@ def output_transform(action):
 
 def main():
     # 1. Configuration
-    CKPT_PATH = "/home/charles/workspaces/lerobot/weights/train/my_smolvla/checkpoints/015000/pretrained_model" # TODO: Update this
-    DATASET_REPO_ID = "miku112/piper-pick-place-banana-v2" # TODO: Ensure this matches your training dataset for correct normalization
-    DATASET_ROOT = "/home/charles/workspaces/lerobot/datasets/miku112/piper-pick-place-banana-v2"
-    TASK_INSTRUCTION = "pick up the banana and put it into the container" # TODO: Update this
+    CKPT_PATH = "/home/charles/workspaces/lerobot/weights/train/piper-pick-banana-50/checkpoints/018000/pretrained_model" # TODO: Update this
+    DATASET_REPO_ID = "miku112/piper-pick-banana-50" # TODO: Ensure this matches your training dataset for correct normalization
+    DATASET_ROOT = "/home/charles/workspaces/lerobot/datasets/miku112/piper-pick-banana-50"
+    TASK_INSTRUCTION = "pick up the banana" # TODO: Update this
     ACTION_CHUNK_SIZE = 50 # 无效参数 
-    EXECUTE_STEPS= 15
+    EXECUTE_STEPS= 10
     # 2. Initialize Robot
     print("Initializing Robot...")
     robot = PiperSingle()
