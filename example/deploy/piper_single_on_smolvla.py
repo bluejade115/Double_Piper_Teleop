@@ -5,6 +5,7 @@ import numpy as np
 import time
 import math
 import pdb
+from scipy.signal import savgol_filter
 from my_robot.agilex_piper_single_base import PiperSingle
 from policy.smolvla.inference_model import SMOLVLA
 from utils.data_handler import is_enter_pressed
@@ -84,7 +85,8 @@ def main():
     DATASET_REPO_ID = "miku112/piper-pick-place-banana-v2" # TODO: Ensure this matches your training dataset for correct normalization
     DATASET_ROOT = "/home/charles/workspaces/lerobot/datasets/miku112/piper-pick-place-banana-v2"
     TASK_INSTRUCTION = "pick up the banana and put it into the container" # TODO: Update this
-    
+    ACTION_CHUNK_SIZE = 50 # 无效参数 
+    EXECUTE_STEPS= 15
     # 2. Initialize Robot
     print("Initializing Robot...")
     robot = PiperSingle()
@@ -92,9 +94,14 @@ def main():
     robot.reset()
     
     # 3. Initialize Model
-    print(f"Loading Model from {CKPT_PATH}...")
+    print(f"Loading Model from {CKPT_PATH} with chunk size {ACTION_CHUNK_SIZE}...")
     try:
-        model = SMOLVLA(model_path=CKPT_PATH, dataset_repo_id=DATASET_REPO_ID, dataset_root=DATASET_ROOT)
+        model = SMOLVLA(
+            model_path=CKPT_PATH, 
+            dataset_repo_id=DATASET_REPO_ID, 
+            dataset_root=DATASET_ROOT,
+            action_chunk_size=ACTION_CHUNK_SIZE
+        )
         model.random_set_language(TASK_INSTRUCTION)
     except Exception as e:
         print(f"Error loading model: {e}")
@@ -135,23 +142,53 @@ def main():
             
             # Predict
             try:
-                action = model.get_action()
+                # Use get_action_chunk to get the full sequence
+                action = model.get_action_chunk()
             except Exception as e:
                 print(f"Inference Failed: {e}")
                 break
                 
             # Execute
-            move_data = output_transform(action)
+            if isinstance(action, np.ndarray) and action.ndim > 1:
+                # Smoothing the action chunk
+                try:
+                    # Use adaptive logic for window length
+                    chunk_len = action.shape[0]
+                    # Aim for ~10-20% of chunk size or fixed small window
+                    window_len = max(5, int(chunk_len * 0.2))
+                    if window_len % 2 == 0:
+                        window_len += 1
+                    
+                    # Ensure window_len is not larger than chunk_len
+                    if window_len > chunk_len:
+                         window_len = chunk_len if chunk_len % 2 == 1 else chunk_len - 1
+
+                    if window_len >= 3:
+                        # Smooth each dimension
+                        for dim in range(action.shape[1]):
+                            action[:, dim] = savgol_filter(action[:, dim], window_length=window_len, polyorder=2)
+                except Exception as e:
+                    print(f"Smoothing failed: {e}")
+
+                # Execute sequential actions
+                print(f"Executing chunk of size {action.shape[0]}")
+                for i in range(EXECUTE_STEPS):
+                    if step >= max_step:
+                        break
+                    
+                    move_data = output_transform(action[i])
+                    robot.move(move_data)
+                    step += 1
+                    
+                    # Control execution frequency (e.g., 50Hz = 0.02s)
+                    time.sleep(0.02)
+                    
+                    # Optional: Check for exit/break condition during chunk execution?
+            else:
+                move_data = output_transform(action)
+                robot.move(move_data)
+                step += 1
             
-            robot.move(move_data)
-            
-            step += 1
-            
-            # Frequency Control
-            # elapsed = time.time() - loop_start
-            # target_dt = 1.0 / robot.condition["save_freq"] # e.g. 1/30
-            # if elapsed < target_dt:
-            #     time.sleep(target_dt - elapsed)
             print(f"Step {step}: action {action} Executed")
             print(f"Step {step}: move_data {move_data} Executed")
 

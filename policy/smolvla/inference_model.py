@@ -14,7 +14,7 @@ except ImportError:
     print("WARNING: LeRobot not installed. Defaulting to raw transformers (normalization may be incorrect).")
 
 class SMOLVLA:
-    def __init__(self, model_path, dataset_repo_id=None, dataset_root=None, device=None):
+    def __init__(self, model_path, dataset_repo_id=None, dataset_root=None, device=None, action_chunk_size=None):
         self.device = device if device else ("cuda" if torch.cuda.is_available() else "cpu")
         self.model_path = model_path
         self.use_lerobot = LEROBOT_AVAILABLE and (dataset_repo_id is not None)
@@ -25,6 +25,10 @@ class SMOLVLA:
             print(f"Loading SmolVLA via LeRobot from {model_path}...")
             # Load Config
             self.cfg = PreTrainedConfig.from_pretrained(model_path)
+
+            if action_chunk_size is not None:
+                print(f"Overriding n_action_steps to {action_chunk_size} for chunked inference")
+                self.cfg.n_action_steps = action_chunk_size
             
             # Load Metadata (required for normalization stats)
             print(f"Loading dataset metadata from {dataset_repo_id}...")
@@ -33,8 +37,21 @@ class SMOLVLA:
             ds_meta = self.dataset.meta
 
             # Make Policy
+            # Note: We pass config=self.cfg to from_pretrained to ensure our overrides (like n_action_steps)
+            # are respected and not overwritten by the config.json on disk.
             self.policy = make_policy(cfg=self.cfg, ds_meta=ds_meta)
-            self.policy = self.policy.from_pretrained(model_path)
+            self.policy = self.policy.from_pretrained(model_path, config=self.cfg)
+            
+            # FORCE OVERRIDE and DEBUG
+            if action_chunk_size is not None:
+                print(f"DEBUG: Forcing policy.config.n_action_steps to {action_chunk_size}")
+                self.policy.config.n_action_steps = action_chunk_size
+                # Also try to set it on the instance if it exists as a direct attribute
+                if hasattr(self.policy, "n_action_steps"):
+                    self.policy.n_action_steps = action_chunk_size
+            
+            print(f"DEBUG: Final Policy n_action_steps: {self.policy.config.n_action_steps}")
+
             self.policy.to(self.device)
             self.policy.eval()
             
@@ -143,6 +160,48 @@ class SMOLVLA:
             # Note: "bridge_orig" unnorm key is dangerous if stats don't match
             action = self.vla.predict_action(**inputs, unnorm_key="bridge_orig", do_sample=False)
             return action
+
+    def get_action_chunk(self):
+        if self.observation is None:
+            raise ValueError("Observation not set. Call update_observation_window first.")
+            
+        if self.use_lerobot:
+            # Prepare Batch (Add batch dim)
+            batch = {}
+            for k, v in self.observation.items():
+                if isinstance(v, np.ndarray):
+                    # Fix for negative strides (e.g. from camera rotation/slicing)
+                    if v.strides is not None and any(s < 0 for s in v.strides):
+                         v = v.copy()
+
+                    val = torch.from_numpy(v).to(self.device).float() # Ensure float for input
+                    
+                    if val.ndim > 0:
+                        val = val.unsqueeze(0)
+                        
+                    # Handle Image permutation if needed: HWC (Piper) -> CHW (LeRobot Dataset)
+                    if "image" in k and val.shape[-1] == 3: # HWC detected
+                         val = val.permute(0, 3, 1, 2) # B, H, W, C -> B, C, H, W
+                    
+                    batch[k] = val
+                else:
+                    batch[k] = v
+                    
+            if "task" not in batch:
+                batch["task"] = [self.instruction]
+
+            with torch.no_grad():
+                batch = self.preprocessor(batch)
+                # Call predict_action_chunk instead of select_action
+                action = self.policy.predict_action_chunk(batch)
+                action = self.postprocessor(action)
+            
+            return action.squeeze(0).cpu().numpy()
+
+        else:
+            # Fallback (Original Logic) - return as chunk of size 1
+            action = self.get_action()
+            return np.expand_dims(action, axis=0)
 
     def reset_obsrvationwindows(self):
         self.observation = None
