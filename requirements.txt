@@ -10,3 +10,8 @@ click
 pandas>=1.2 
 requests>=2.23.0 
 psutil 
+tensorflow_datasets 
+tensorflow_hub
+tensorflow
+apache_beam
+mlcroissant
