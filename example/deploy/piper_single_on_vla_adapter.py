@@ -67,7 +67,8 @@ class DeployConfig:
     use_proprio: bool = True
     center_crop: bool = True
     num_open_loop_steps: int = 1
-    unnorm_key: str = "pick_banana_50_rlds"
+    # Match dataset_statistics key in checkpoint (see dataset_statistics.json)
+    unnorm_key: str = "pick_banana_50"
 
     # Action head / adapter settings
     use_l1_regression: bool = True
