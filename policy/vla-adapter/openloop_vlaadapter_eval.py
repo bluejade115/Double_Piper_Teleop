@@ -359,6 +359,7 @@ def eval_openloop(cfg: EvalConfig) -> None:
                 plt.tight_layout()
                 plt.savefig(os.path.join(plots_dir, f"episode_{i}_delta_comparison.png"))
                 plt.close()
+                logger.info(f"Saved plot for episode {i} in {plots_dir}")
 
     if total_samples > 0:
         logger.info(f"Final Average MSE over {total_samples} episodes: {total_mse / total_samples:.6f}")
