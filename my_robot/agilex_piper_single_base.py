@@ -65,8 +65,7 @@ class PiperSingle(Robot):
         self.can_name = can_name
     # ============== init ==============
     def reset(self):
-        
-        self.controllers["arm"]["left_arm"].reset(np.array(START_POSITION_ANGLE_LEFT_ARM))
+       self.controllers["arm"]["left_arm"].reset(np.array(START_POSITION_ANGLE_LEFT_ARM))
 
     def set_up(self):
         super().set_up()

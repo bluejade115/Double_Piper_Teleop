@@ -121,8 +121,15 @@ class SMOLVLA:
                     # Fix for negative strides (e.g. from camera rotation/slicing)
                     if v.strides is not None and any(s < 0 for s in v.strides):
                          v = v.copy()
-                         
+
+                    # Normalize uint8 images to [0, 1]
+                    do_norm = False
+                    if "image" in k and v.dtype == np.uint8:
+                         do_norm = True
+
                     val = torch.from_numpy(v).to(self.device).float() # Ensure float for input
+                    if do_norm:
+                         val = val / 255.0
                     
                     if val.ndim > 0:
                         val = val.unsqueeze(0)
@@ -174,7 +181,14 @@ class SMOLVLA:
                     if v.strides is not None and any(s < 0 for s in v.strides):
                          v = v.copy()
 
+                    # Normalize uint8 images to [0, 1]
+                    do_norm = False
+                    if "image" in k and v.dtype == np.uint8:
+                         do_norm = True
+
                     val = torch.from_numpy(v).to(self.device).float() # Ensure float for input
+                    if do_norm:
+                         val = val / 255.0
                     
                     if val.ndim > 0:
                         val = val.unsqueeze(0)
