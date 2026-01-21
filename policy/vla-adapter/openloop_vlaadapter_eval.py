@@ -50,8 +50,8 @@ tf.config.set_visible_devices([], "GPU")
 @dataclass
 class EvalConfig:
     # Model parameters
-    pretrained_checkpoint: Union[str, Path] = "./outputs/configs+pick_banana_50+b4+lr-0.0002+lora-r64+dropout-0.0--image_aug--train1_4gpu--25000_chkpt"
-    base_model_checkpoint: Optional[Union[str, Path]] = "./outputs/configs+pick_banana_50+b4+lr-0.0002+lora-r64+dropout-0.0--image_aug--train1_4gpu--25000_chkpt"
+    pretrained_checkpoint: Union[str, Path]
+    base_model_checkpoint: Optional[Union[str, Path]] = None
     dataset_path: Union[str, Path] = "./data/miku112/pick_banana_50_rlds"
     dataset_split: str = "train"
     model_family: str = "openvla"
@@ -73,21 +73,17 @@ class EvalConfig:
     use_proprio: bool = True
     center_crop: bool = True
     num_open_loop_steps: int = 1
-    unnorm_key: str = "pick_banana_50_rlds" # Will be updated from dataset_statistics if possible
+    unnorm_key: str = "pick_banana_50" # Will be updated from dataset_statistics if possible
     save_version: str = "vla-adapter" 
-@draccus.wrap()
-def eval_openloop(cfg: EvalConfig) -> None:
-    set_seed_everywhere(0)
-    
-    # 1. Load Model
-    logger.info(f"Loading model from {cfg.pretrained_checkpoint}")
-    
+
+def initialize_model(cfg: EvalConfig):
+    """Initialize model and associated components."""
+    # Load model
     # Check if we need to load base model + adapter manually
-    if cfg.base_model_checkpoint and os.path.isdir(cfg.base_model_checkpoint):
+    if cfg.base_model_checkpoint and os.path.exists(cfg.base_model_checkpoint):
         logger.info(f"Detected base model checkpoint: {cfg.base_model_checkpoint}")
-        
         try:
-             # Imports needed for manual loading
+            # Imports needed for manual loading
             from transformers import AutoModelForVision2Seq, AutoConfig, AutoImageProcessor, AutoProcessor
             from experiments.robot.openvla_utils import OpenVLAConfig, PrismaticImageProcessor, PrismaticProcessor, OpenVLAForActionPrediction
             from peft import PeftModel
@@ -113,57 +109,69 @@ def eval_openloop(cfg: EvalConfig) -> None:
                  logger.info(f"Loading LoRA adapter from {lora_path}")
                  model = PeftModel.from_pretrained(model, lora_path)
                  model = model.merge_and_unload()
+            elif os.path.exists(os.path.join(cfg.pretrained_checkpoint, "adapter_config.json")):
+                 logger.info(f"Loading LoRA adapter from {cfg.pretrained_checkpoint}")
+                 model = PeftModel.from_pretrained(model, cfg.pretrained_checkpoint)
+                 model = model.merge_and_unload()
             else:
-                 # Check if the checkpoint folder itself is the adapter
-                 # (Has adapter_config.json)
-                 if os.path.exists(os.path.join(cfg.pretrained_checkpoint, "adapter_config.json")):
-                      logger.info(f"Loading LoRA adapter from {cfg.pretrained_checkpoint}")
-                      model = PeftModel.from_pretrained(model, cfg.pretrained_checkpoint)
-                      model = model.merge_and_unload()
-                 else:
-                      logger.warning("Could not find LoRA adapter files. Proceeding with base model only (risky if not intended).")
+                 logger.warning("Could not find LoRA adapter files. Proceeding with base model only (risky if not intended).")
 
-            # Configure Model
-            model.vision_backbone.set_num_images_in_input(cfg.num_images_in_input)
-            model.eval()
-            model = model.to(torch.device("cuda:0"))
-            
         except Exception as e:
             logger.error(f"Failed to load base model + adapter: {e}")
             raise e
     else:
+        logger.info(f"loading pretrained checkpoint from {cfg.pretrained_checkpoint}")
         model = get_model(cfg)
-        model.eval()
-    
-    # 2. Load Processor
-    processor = get_processor(cfg)
-    
-    # 3. Load Additional Components
-    action_head = None
-    if cfg.use_l1_regression:
-        try:
-             llm_dim = model.config.text_config.hidden_size
-        except:
-             llm_dim = 4096 # Fallback
-        logger.info(f"Loading Action Head (dim={llm_dim})")
-        action_head = get_action_head(cfg, llm_dim)
 
+    model.set_version(cfg.save_version)
+    
+    # Load proprio projector if needed
     proprio_projector = None
     if cfg.use_proprio:
         try:
             llm_dim = model.config.text_config.hidden_size
         except:
             llm_dim = 4096
-        proprio_dim = 8 # Standard 7DOF (but some adapters use 8 with padding)
         
+        proprio_projector = get_proprio_projector(
+            cfg,
+            llm_dim,
+            proprio_dim=8,  # 8-dimensional proprio for Piper
+        )
+
+    # Load action head if needed
+    action_head = None
+    if cfg.use_l1_regression:
         try:
-            # Try to load proprio projector
-            # If function fails or file not found, handle gracefully or assume no proprio
-            logger.info("Loading Proprio Projector")
-            proprio_projector = get_proprio_projector(cfg, llm_dim, proprio_dim)
-        except Exception as e:
-            logger.warning(f"Could not load proprio projector: {e}")
-            cfg.use_proprio = False
+            llm_dim = model.config.text_config.hidden_size
+        except:
+            llm_dim = 4096
+        action_head = get_action_head(cfg, llm_dim)
+
+    # Load noisy action projector if using diffusion
+    noisy_action_projector = None
+
+    # Get OpenVLA processor if needed
+    processor = None
+    if cfg.model_family == "openvla":
+        processor = get_processor(cfg)
+
+
+    return model, action_head, proprio_projector, noisy_action_projector, processor
+
+@draccus.wrap()
+def eval_openloop(cfg: EvalConfig) -> None:
+    set_seed_everywhere(0)
+    
+    # 1. Load Model
+    logger.info(f"Loading model components from {cfg.pretrained_checkpoint}")
+    model, action_head, proprio_projector, noisy_action_projector, processor = initialize_model(cfg)
+    model.eval()
+    
+    # Move to GPU if needed (and not already there)
+    device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+    if not next(model.parameters()).is_cuda and not (cfg.load_in_8bit or cfg.load_in_4bit):
+        model = model.to(device)
 
     # 4. Load Dataset Statistics
     stats_path = os.path.join(cfg.pretrained_checkpoint, "dataset_statistics.json")
@@ -214,6 +222,8 @@ def eval_openloop(cfg: EvalConfig) -> None:
     # 6. Evaluate
     total_mse = 0.0
     total_samples = 0
+    all_episode_mses = []
+    proprio_dim = 8 # Default for Piper
     
     logger.info("Starting evaluation...")
     
@@ -327,6 +337,7 @@ def eval_openloop(cfg: EvalConfig) -> None:
             avg_ep_mse = episode_mse / episode_steps
             total_mse += avg_ep_mse
             total_samples += 1
+            all_episode_mses.append(avg_ep_mse)
             if i % 10 == 0:
                  logger.info(f"Episode {i}: MSE = {avg_ep_mse:.6f}")
             
@@ -359,10 +370,31 @@ def eval_openloop(cfg: EvalConfig) -> None:
                 plt.tight_layout()
                 plt.savefig(os.path.join(plots_dir, f"episode_{i}_delta_comparison.png"))
                 plt.close()
-                logger.info(f"Saved plot for episode {i} in {plots_dir}")
+                logger.info(f"Saved episode_{i}_delta_comparison.png for episode {i} in {plots_dir}")
 
     if total_samples > 0:
-        logger.info(f"Final Average MSE over {total_samples} episodes: {total_mse / total_samples:.6f}")
+        final_avg_mse = total_mse / total_samples
+        logger.info(f"Final Average MSE over {total_samples} episodes: {final_avg_mse:.6f}")
+
+        # Plot Episodes vs MSE curve
+        plt.figure(figsize=(10, 6))
+        plt.plot(range(len(all_episode_mses)), all_episode_mses, marker='o', linestyle='-', color='b', label='Episode MSE')
+        plt.xlabel('Episode')
+        plt.ylabel('Average MSE')
+        plt.title(f'MSE per Episode ({cfg.pretrained_checkpoint.split("/")[-1]})')
+        plt.grid(True)
+        
+        # Annotate average MSE in a blank area (top right)
+        annotation_text = f"Average MSE over {total_samples} episodes: {final_avg_mse:.6f}"
+        plt.text(0.95, 0.95, annotation_text, transform=plt.gca().transAxes, 
+                 fontsize=12, verticalalignment='top', horizontalalignment='right',
+                 bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        
+        plt.legend()
+        plot_path = os.path.join(plots_dir, "episodes_mse_curve.png")
+        plt.savefig(plot_path)
+        plt.close()
+        logger.info(f"Saved MSE curve to {plot_path}")
     else:
         logger.info("No samples evaluated.")
 
