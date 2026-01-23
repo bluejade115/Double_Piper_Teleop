@@ -14,7 +14,14 @@ CAMERA_SERIALS = {
     'head': '023422071967',  # Replace with actual serial number
     'wrist': '152122077595',   # Replace with actual serial number
 }
-
+START_POSITION_POS_LEFT_ARM = [
+                0.057, 
+                0.0, 
+                0.115, 
+                0.0, 
+                0.085, 
+                0.0, 
+]
 # Define start position (in degrees)
 START_POSITION_ANGLE_LEFT_ARM = [
     0.0,   # Joint 1
@@ -66,7 +73,8 @@ class PiperSingle(Robot):
     # ============== init ==============
     def reset(self):
        self.controllers["arm"]["left_arm"].reset(np.array(START_POSITION_ANGLE_LEFT_ARM))
-
+    def reset_position(self):
+         self.controllers["arm"]["left_arm"].reset_position(np.array(START_POSITION_POS_LEFT_ARM))
     def set_up(self):
         super().set_up()
         # can_name = self.can_name
@@ -81,6 +89,9 @@ class PiperSingle(Robot):
                                })
         
         print("set up success!")
+    def move_modeP(self,position,gripper):
+        self.controllers["arm"]["left_arm"].move_modeP(position,gripper)
+    
     
 if __name__=="__main__":
     import time

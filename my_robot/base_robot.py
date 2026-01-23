@@ -107,7 +107,7 @@ class Robot:
                 else:
                     controller_action = remove_duplicate_keys(controller_action, key_banned)
                     self.controllers[controller_type_name][controller_name].move(controller_action,is_delta=False)
-    
+  
     def is_start(self):
         debug_print(self.name, "your are using default func: is_start(), this will return True only", "DEBUG")
         return True

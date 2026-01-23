@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any, Dict, Optional, Tuple
-
+import draccus
 import numpy as np
 
 # ====== Path Setup ======
@@ -56,17 +56,15 @@ class ActionEncoding(IntEnum):
 @dataclass
 class DeployConfig:
     # Model parameters
-    pretrained_checkpoint: str = (
-        "/home/lxx/repo/VLA-Adapter/outputs/"
-        "configs+pick_banana_50+b4+lr-0.0002+lora-r64+dropout-0.0--image_aug--train1_4gpu--25000_chkpt"
-    )
+    pretrained_checkpoint: str = ''
+
     model_family: str = "openvla"
 
     # Input parameters
     num_images_in_input: int = 2
     use_proprio: bool = True
     center_crop: bool = True
-    num_open_loop_steps: int = 1
+    num_open_loop_steps: int = 25
     # Match dataset_statistics key in checkpoint (see dataset_statistics.json)
     unnorm_key: str = "pick_banana_50"
 
@@ -81,7 +79,11 @@ class DeployConfig:
     load_in_4bit: bool = False
 
     # Action chunk execution
-    execute_chunk_steps: int = 10
+    execute_chunk_steps: int = 8
+    # Control behavior
+    lock_ry: bool = False
+    # rpy delta scale: model outputs in same unit as qpos
+    rpy_delta_scale: float = 1.0
 
 
 # ====== Input / Output Helpers ======
@@ -109,6 +111,7 @@ def build_obs(sensor_data: Dict[str, Any], proprio: np.ndarray) -> Dict[str, Any
     img_head = to_uint8_rgb(sensor_data["cam_head"]["color"])
     img_wrist = to_uint8_rgb(sensor_data["cam_wrist"]["color"])
 
+
     obs = {
         "full_image": img_head,
         "state": proprio,
@@ -121,11 +124,23 @@ def clamp(value: np.ndarray, lo: float, hi: float) -> np.ndarray:
     return np.minimum(np.maximum(value, lo), hi)
 
 
+def wrap_rpy_error(rpy_err: np.ndarray, full_turn_deg: float = 360.0, unit_scale: float = 1e-6) -> np.ndarray:
+    """
+    Wrap rpy error to [-180, 180] degrees in the scaled unit used by qpos.
+    qpos_rpy unit is (degrees * unit_scale).
+    """
+    half_turn = (full_turn_deg / 2.0) * unit_scale
+    full_turn = full_turn_deg * unit_scale
+    return (rpy_err + half_turn) % full_turn - half_turn
+
+
 def action_to_move(
     action: np.ndarray,
     current_qpos: np.ndarray,
     max_delta_pos: float = 0.05,
     max_delta_rpy: float = 0.2,
+    lock_ry: bool = True,
+    rpy_delta_scale: float = 1e-6,
 ) -> Dict[str, Any]:
     # ActionEncoding.EEF_POS: delta XYZ (3) + delta RPY (3) + gripper (1)
     if action.ndim > 1:
@@ -138,7 +153,13 @@ def action_to_move(
 
     target_qpos = current_qpos.copy()
     target_qpos[:3] += delta_pos
-    target_qpos[3:6] += delta_rpy
+    if lock_ry:
+        # Update only pitch (index 1 in RPY), lock roll and yaw
+        target_qpos[3] = current_qpos[3]
+        target_qpos[4] += delta_rpy[1] * rpy_delta_scale
+        target_qpos[5] = current_qpos[5]
+    else:
+        target_qpos[3:6] += delta_rpy * rpy_delta_scale
 
     gripper = float(np.clip(action[6], 0.0, 1.0))
 
@@ -162,21 +183,21 @@ def ensure_unnorm_key(model: Any, cfg: DeployConfig) -> None:
         print(f"[WARN] unnorm_key {cfg.unnorm_key} not found, use {keys[0]}")
         cfg.unnorm_key = keys[0]
 
-
-def main():
-    cfg = DeployConfig()
+@draccus.wrap()
+def main(cfg: DeployConfig):
     set_seed_everywhere(0)
 
     print("Initializing Robot...")
     robot = PiperSingle()
     robot.set_up()
-    robot.reset()
+    robot.reset_position()
 
     # Configure Piper motion mode (EEF position control)
     try:
         piper_ctrl = robot.controllers["arm"]["left_arm"].controller
-        # ctrl_mode=0x01 (CAN cmd), move_mode=0x00 (MOVE P), move_spd_rate=50, is_mit_mode=0x00
-        piper_ctrl.MotionCtrl_2(0x01, 0x00, 50, 0x00)
+        # ctrl_mode=0x01 (CAN cmd), move_mode=0x00 (MOVE P), move_spd_rate=100, is_mit_mode=0x00
+        piper_ctrl.MotionCtrl_2(0x01, 0x00, 100, 0x00)
+        print("Piper MotionCtrl_2 set to CAN mode + MOVE P mode.")
     except Exception as e:
         print(f"[WARN] Failed to set MotionCtrl_2: {e}")
 
@@ -208,6 +229,13 @@ def main():
 
     print("Inference Started!")
     step = 0
+    current_qpos: Optional[np.ndarray] = None
+    last_feedback_qpos: Optional[np.ndarray] = None
+    stall_count = 0
+    stall_delta_thresh = 1e-4
+    stall_err_thresh = 1e-2
+    stall_max_steps = 5
+    stalled = False
     while step < max_steps:
         data = robot.get()
         controller_data, sensor_data = data[0], data[1]
@@ -240,15 +268,56 @@ def main():
             action_list = [actions]
         
         exec_steps = min(cfg.execute_chunk_steps, len(action_list))
+        if current_qpos is None:
+            current_qpos = np.array(controller_data["left_arm"]["qpos"], dtype=np.float32).reshape(-1)
+        print(f"action_list: {action_list}")
+        print(f" current_qpos: {current_qpos}")
         for i in range(exec_steps):
             if step >= max_steps:
                 break
             action = action_list[i]
-            current_qpos = np.array(controller_data["left_arm"]["qpos"], dtype=np.float32).reshape(-1)
-            move_data = action_to_move(action, current_qpos)
-            robot.move(move_data)
+            
+            # calculate target position
+            move_data = action_to_move(
+                action,
+                current_qpos,
+                lock_ry=cfg.lock_ry,
+                rpy_delta_scale=cfg.rpy_delta_scale,
+            )
+            print(f"Step {step}: Move Data: {move_data}")
+
+            robot.move_modeP(move_data["arm"]["left_arm"]["qpos"], move_data["arm"]["left_arm"]["gripper"])
             step += 1
             time.sleep(0.02)
+            # feedback error logging
+            feedback = robot.get()[0]["left_arm"]["qpos"]
+            feedback_qpos = np.array(feedback, dtype=np.float32)
+            target_qpos = np.array(move_data["arm"]["left_arm"]["qpos"], dtype=np.float32)
+            err = target_qpos - feedback_qpos
+            err[3:6] = wrap_rpy_error(err[3:6])
+            err_norm = float(np.linalg.norm(err))
+            print(f"Step {step - 1}: Target qpos: {target_qpos}")
+            print(f"Step {step - 1}: Feedback qpos: {feedback_qpos}")
+            print(f"Step {step - 1}: Qpos error: {err}")
+            if last_feedback_qpos is not None:
+                delta_fb = float(np.linalg.norm(feedback_qpos - last_feedback_qpos))
+                if delta_fb < stall_delta_thresh and err_norm > stall_err_thresh:
+                    stall_count += 1
+                    print(
+                        f"[WARN] Feedback not moving (delta={delta_fb:.6f}) with large error "
+                        f"(norm={err_norm:.6f}). stall_count={stall_count}"
+                    )
+                else:
+                    stall_count = 0
+            last_feedback_qpos = feedback_qpos
+            if stall_count >= stall_max_steps:
+                print("[ERROR] Arm appears stalled; stopping to avoid accumulating error.")
+                stalled = True
+                break
+            # update current_qpos for next step using feedback
+            current_qpos = feedback_qpos
+        if stalled:
+            break
 
     print("Finished.")
     robot.reset()

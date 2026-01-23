@@ -40,7 +40,20 @@ class PiperController(ArmController):
         except :
             print(f"reset error")
         return
-
+    def reset_position(self, position):
+        try:
+            self.set_position(position)
+        except :
+            print(f"reset position error")
+        return
+    def move_modeP(self,position,gripper):
+        position = np.array(position)
+        x, y, z, rx, ry, rz = position*1000*1000
+        x, y, z, rx, ry, rz = int(x), int(y), int(z), int(rx), int(ry), int(rz)
+        gripper = int(gripper * 70 * 1000)
+        # self.controller.MotionCtrl_2(0x01, 0x00, 100, 0x00)
+        self.controller.EndPoseCtrl(x, y, z, rx, ry, rz)
+        self.controller.GripperCtrl(gripper, 1000, 0x01, 0)
     # 返回单位为米
     def get_state(self):
         state = {}
