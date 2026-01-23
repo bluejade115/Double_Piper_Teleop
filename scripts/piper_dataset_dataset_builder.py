@@ -82,6 +82,11 @@ class PiperDataset(tfds.core.GeneratorBasedBuilder):
                         dtype=np.float32,
                         doc='Robot EEF delta action, consists of [3x delta pos, 3x delta rpy, 1x gripper absolute].',
                     ),
+                    'joint_delta': tfds.features.Tensor(
+                        shape=(8,),
+                        dtype=np.float32,
+                        doc='Robot joint delta action, consists of [7x joint delta pos (padded), 1x gripper absolute target].',
+                    ),
                     'discount': tfds.features.Scalar(
                         dtype=np.float32,
                         doc='Discount if provided, default to 1.'
@@ -225,6 +230,14 @@ class PiperDataset(tfds.core.GeneratorBasedBuilder):
 
                     action_eef_delta = np.concatenate([delta_pose, target_gripper], axis=-1)
 
+                    # Action Joint Delta: 7x Joint Delta Position (padded) + 1x Gripper Open/Close
+                    delta_joints = np.zeros_like(joints)
+                    delta_joints[:-1] = joints[1:] - joints[:-1]
+                    delta_joints[-1] = 0.0
+                    
+                    pads = np.zeros((num_steps, 1), dtype=np.float32)
+                    joint_delta = np.concatenate([delta_joints, pads, target_gripper], axis=-1)
+
                     # Pick a random instruction for this episode
                     lang_instruction = random.choice(possible_instructions)
                     
@@ -245,6 +258,7 @@ class PiperDataset(tfds.core.GeneratorBasedBuilder):
                             },
                             'action': actions[i].astype(np.float32),
                             'action_eef_delta': action_eef_delta[i].astype(np.float32),
+                            'joint_delta': joint_delta[i].astype(np.float32),
                             'discount': 1.0,
                             'reward': float(i == (num_steps - 1)),
                             'is_first': i == 0,
