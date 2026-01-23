@@ -33,26 +33,6 @@ from experiments.robot.robot_utils import (
 )
 
 
-# ====== State / Action Encoding ======
-class StateEncoding(IntEnum):
-    # fmt: off
-    NONE = -1               # No Proprioceptive State
-    POS_EULER = 1           # EEF XYZ (3) + Roll-Pitch-Yaw (3) + <PAD> (1) + Gripper Open/Close (1)
-    POS_QUAT = 2            # EEF XYZ (3) + Quaternion (4) + Gripper Open/Close (1)
-    JOINT = 3               # Joint Angles (7, <PAD> if fewer) + Gripper Open/Close (1)
-    JOINT_BIMANUAL = 4      # Joint Angles (2 x [ Joint Angles (6) + Gripper Open/Close (1) ])
-    # fmt: on
-
-
-class ActionEncoding(IntEnum):
-    # fmt: off
-    EEF_POS = 1             # EEF Delta XYZ (3) + Roll-Pitch-Yaw (3) + Gripper Open/Close (1)
-    JOINT_POS = 2           # Joint Delta Position (7) + Gripper Open/Close (1)
-    JOINT_POS_BIMANUAL = 3  # Joint Delta Position (2 x [ Joint Delta Position (6) + Gripper Open/Close (1) ])
-    EEF_R6 = 4              # EEF Delta XYZ (3) + R6 (6) + Gripper Open/Close (1)
-    # fmt: on
-
-
 @dataclass
 class DeployConfig:
     # Model parameters
@@ -64,7 +44,7 @@ class DeployConfig:
     num_images_in_input: int = 2
     use_proprio: bool = True
     center_crop: bool = True
-    num_open_loop_steps: int = 25
+    num_open_loop_steps: int = 8
     # Match dataset_statistics key in checkpoint (see dataset_statistics.json)
     unnorm_key: str = "pick_banana_50"
 
@@ -81,7 +61,7 @@ class DeployConfig:
     # Action chunk execution
     execute_chunk_steps: int = 8
     # Control behavior
-    lock_ry: bool = False
+    lock_ry: bool = True
     # rpy delta scale: model outputs in same unit as qpos
     rpy_delta_scale: float = 1.0
 
@@ -161,7 +141,9 @@ def action_to_move(
     else:
         target_qpos[3:6] += delta_rpy * rpy_delta_scale
 
-    gripper = float(np.clip(action[6], 0.0, 1.0))
+    gripper_raw = float(np.clip(action[6], 0.0, 0.7))
+    gripper = gripper_raw
+    gripper = 0.7 if gripper_raw > 0.5 else 0.3
 
     return {
         "arm": {
@@ -288,36 +270,36 @@ def main(cfg: DeployConfig):
 
             robot.move_modeP(move_data["arm"]["left_arm"]["qpos"], move_data["arm"]["left_arm"]["gripper"])
             step += 1
-            time.sleep(0.02)
+            time.sleep(0.04)
             # feedback error logging
             feedback = robot.get()[0]["left_arm"]["qpos"]
             feedback_qpos = np.array(feedback, dtype=np.float32)
-            target_qpos = np.array(move_data["arm"]["left_arm"]["qpos"], dtype=np.float32)
-            err = target_qpos - feedback_qpos
-            err[3:6] = wrap_rpy_error(err[3:6])
-            err_norm = float(np.linalg.norm(err))
-            print(f"Step {step - 1}: Target qpos: {target_qpos}")
-            print(f"Step {step - 1}: Feedback qpos: {feedback_qpos}")
-            print(f"Step {step - 1}: Qpos error: {err}")
-            if last_feedback_qpos is not None:
-                delta_fb = float(np.linalg.norm(feedback_qpos - last_feedback_qpos))
-                if delta_fb < stall_delta_thresh and err_norm > stall_err_thresh:
-                    stall_count += 1
-                    print(
-                        f"[WARN] Feedback not moving (delta={delta_fb:.6f}) with large error "
-                        f"(norm={err_norm:.6f}). stall_count={stall_count}"
-                    )
-                else:
-                    stall_count = 0
-            last_feedback_qpos = feedback_qpos
-            if stall_count >= stall_max_steps:
-                print("[ERROR] Arm appears stalled; stopping to avoid accumulating error.")
-                stalled = True
-                break
+            # target_qpos = np.array(move_data["arm"]["left_arm"]["qpos"], dtype=np.float32)
+            # err = target_qpos - feedback_qpos
+            # err[3:6] = wrap_rpy_error(err[3:6])
+            # err_norm = float(np.linalg.norm(err))
+            # print(f"Step {step - 1}: Target qpos: {target_qpos}")
+            # print(f"Step {step - 1}: Feedback qpos: {feedback_qpos}")
+            # print(f"Step {step - 1}: Qpos error: {err}")
+            # if last_feedback_qpos is not None:
+            #     delta_fb = float(np.linalg.norm(feedback_qpos - last_feedback_qpos))
+            #     if delta_fb < stall_delta_thresh and err_norm > stall_err_thresh:
+            #         stall_count += 1
+            #         print(
+            #             f"[WARN] Feedback not moving (delta={delta_fb:.6f}) with large error "
+            #             f"(norm={err_norm:.6f}). stall_count={stall_count}"
+            #         )
+            #     else:
+            #         stall_count = 0
+            # last_feedback_qpos = feedback_qpos
+            # if stall_count >= stall_max_steps:
+            #     print("[ERROR] Arm appears stalled; stopping to avoid accumulating error.")
+            #     stalled = True
+            #     break
             # update current_qpos for next step using feedback
             current_qpos = feedback_qpos
-        if stalled:
-            break
+        # if stalled:
+        #     break
 
     print("Finished.")
     robot.reset()
